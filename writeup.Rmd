@@ -1,16 +1,21 @@
 ---
 title: "Genscape Oil Project"
 author: "Jacob Townson"
-date: "June 17, 2018"
+date: "June 16, 2018"
 output: pdf_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 require(xlsx)
+require(knitr)
+require(dplyr)
 
 prob1_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=1,header=TRUE,startRow=1)
+prob1_data = prob1_data[,1:3]
+colnames(prob1_data) = c('Date','oil.flow_barrels','power_megawatt')
+
 prob2_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=2,header=TRUE,startRow=1)
 ```
@@ -22,6 +27,65 @@ prob2_data = read.xlsx("./Draft_Problem_set.2.xlsx",
 An oil pipeline uses pump stations to push oil over large distances. Genscape monitors the power consumption of these pump stations in Megawatts and converts this power into the amount of oil flowing through a pipeline in barrels of oil per day. We have provided you with the power consumption at a pump station and the corresponding flow rates in the pipeline (note: The flow rates are considered truth data, while the Megawatts are the actual measurements taken by Genscape). Please attempt to model the flow rate as a function of the pump station power. Discuss whether your model (or models,  if you chose to change the model during the time series) is/are a good fit and explain your methodology.
 
 Find the average monthly value for your prediction and the ‘Oil Flow’ columns. Create a graph comparing the predicted and actual values using the monthly averages. Please make the chart clear as if it were being presented to a customer.
+
+
+
+## My Work:
+
+To start, I have already read the required data into R, and named the data for this probelm 'prob1_data'. Below is a slight glimpse at what this data looks like:
+
+```{r echo=FALSE}
+kable(head(prob1_data))
+```
+
+So what we have here is the date that the data corresponds to, the number of barrels that flowed through that pump on a given day, and the pump station power in Megawatts. 
+
+Before we begin our model making process, it may be helpful to split the data into test and training datasets. We can do this with the following simple bit of code:
+
+```{r}
+set.seed(225566)
+training.data = sample_frac(prob1_data, size = 2/3)
+test.data = anti_join(prob1_data, training.data, by = 'Date')
+```
+
+Here we are using the dplyr package to easily organize the test and training datasets. First we set the seed so that we get the same training data every time we run this code. The training data here is $\frac{2}{3}$ of the original data, while the test data is the leftover $\frac{1}{3}$. We don't use a validation set here because ****WHY****?
+
+Now we can begin the creation of our model. Let's start with the easiest option and make a linear model.
+
+```{r}
+oil.lm = lm(oil.flow_barrels~power_megawatt, data = training.data)
+summary(oil.lm)
+```
+
+Presented here is our summary of the linear model. Just by looking at this, we find that at a first glance this model works quite well! Notice our extremely small P values for the intercept and the "power_megawatt" variable. We also get a very small P-value for the F-statisctic which is very promising. Just to make sure let's continue to check this model by looking at the residuals.
+
+```{r echo=FALSE, fig.height=3}
+plot(oil.lm, which = 1:2)
+```
+
+Here we can see that our residuals clearly show a different story. From our first residual plot, we can see that it almost seems as though our data is split into 2 parts. And from the Q-Q plot we see that we definitely have some outliers and maybe some noise. So maybe a simple linear model is not our best option.
+
+To further our exploration here, let's look at some correlations in the data using the "pairs" function in R.
+
+```{r}
+pairs(training.data)
+```
+
+This plot shows some interesting facts about this data. First off, as probably expected, Date vs. the oil flow in barrels makes for a lot of noise. Then in the Date vs. the power produced in megawatts, we get what appears to be 2 blocks of noise. Notice these blocks are divided by the beginning of the year 2017. Then in the oil flow vs. power produced plots, we see that we get what look like 2 separate outcomes. Curiosity based on the date vs. power plots makes me wonder if this could possibly have something to do with the change in power produced beginning in 2017. 
+
+To see if the data from 2017 is causing troubles, let's remove it entirely and find what happens then. 
+
+```{r}
+rem_year = filter(training.data, Date < '2017-01-01')
+pairs(rem_year)
+```
+
+Now we're getting somewhere. Notice the 2017 data must is the problem. As we notices in our original residuals, the data is split, and now we can see how and where. 
+
+
+
+
+
 
 
 
@@ -42,6 +106,10 @@ Pipelines to research: Seaway (legacy), Dakota Access, Pony Express, White Cliff
 Genscape has provided sample data for each of the above pipeline’s flow rates in barrels per day. We have also provided storage volumes at Cushing in Barrels. Using what you researched above, create a model using the pipeline data provided to predict storage changes at Cushing. Please note that a perfect model is not possible due to noise in the data. Please document the results of your model and explain its strengths and weaknesses.
 
 West Texas Intermediate (WTI) price has a relationship with oil stored at Cushing (Cushing is the delivery point for the WTI NYMEX contract). WTI closing prices have been provided with their corresponding storage volumes. Please discuss any correlation you see, and any economic justification for why that relationship might exist.
+
+
+
+## My Work:
 
 
 
