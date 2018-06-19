@@ -12,6 +12,8 @@ require(xlsx)
 require(knitr)
 require(dplyr)
 require(caret)
+require(xtable)
+require(kableExtra)
 
 prob1_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=1,header=TRUE,startRow=1)
@@ -20,6 +22,8 @@ colnames(prob1_data) = c('Date','oil.flow_barrels','power_megawatt')
 
 prob2_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=2,header=TRUE,startRow=1)
+cushing_data = read.xlsx('./cushing.pipedata.xlsx',
+                         sheetIndex=1, header=TRUE, startRow = 2, endRow = 7)
 ```
 
 # Problem 1
@@ -34,11 +38,9 @@ Find the average monthly value for your prediction and the ‘Oil Flow’ column
 
 ## My Work:
 
-To start, I have already read the required data into R, and named the data for this problem `prob1_data`. Below is a slight glimpse at what this data looks like:
+To start, I have already read the required data into R, and named the data for this problem `prob1_data`. Table 1 shows a slight glimpse at what this data looks like.
 
-```{r echo=FALSE}
-kable(head(prob1_data))
-```
+
 
 So what we have here is the date that the data corresponds to, the number of barrels that flowed through that pump on a given day, and the pump station power in Megawatts. 
 
@@ -46,8 +48,8 @@ Before we begin our model making process, it may be helpful to split the data in
 
 ```{r}
 set.seed(225566)
-training.data = sample_frac(prob1_data, size = 2/3)
-test.data = anti_join(prob1_data, training.data, by = 'Date')
+training.data1 = sample_frac(prob1_data, size = 2/3)
+test.data1 = anti_join(prob1_data, training.data1, by = 'Date')
 ```
 
 Here we are using the `dplyr` package to easily organize the test and training datasets. First we set the seed so that we get the same training data every time we run this code. The training data here is $\frac{2}{3}$ of the original data, while the test data is the leftover $\frac{1}{3}$. We don't use a validation set here because our goal is to simply assess how well the model and estimation method work. 
@@ -55,7 +57,7 @@ Here we are using the `dplyr` package to easily organize the test and training d
 Now we can begin the creation of our model. Let's start with the easiest option and make a linear model.
 
 ```{r}
-oil.lm = lm(oil.flow_barrels~power_megawatt, data = training.data)
+oil.lm = lm(oil.flow_barrels~power_megawatt, data = training.data1)
 summary(oil.lm)
 ```
 
@@ -67,29 +69,16 @@ plot(oil.lm, which = 1:2)
 
 Here we can see that our residuals clearly show a different story. From our first residual plot, we can see that it almost seems as though our data is split into 2 parts. And from the Q-Q plot we see that we definitely have some outliers and maybe some noise. So maybe a simple linear model is not our best option.
 
-To further our exploration here, let's look at some correlations in the data using the `pairs` function in R.
+To further our exploration here, let's look at some correlations in the data using the `pairs` function in R (Fig. 1). This plot shows some interesting facts about this data. First off, as probably expected, Date vs. the oil flow in barrels makes for a lot of noise. Then in the Date vs. the power produced in megawatts, we get what appears to be 2 blocks of noise. Notice these blocks are divided by the beginning of the year 2017. Then in the oil flow vs. power produced plots, we see that we get what look like 2 separate outcomes. Curiosity based on the date vs. power plots makes me wonder if this could possibly have something to do with the change in power produced beginning in 2017. 
 
-```{r}
-pairs(training.data)
-```
-
-This plot shows some interesting facts about this data. First off, as probably expected, Date vs. the oil flow in barrels makes for a lot of noise. Then in the Date vs. the power produced in megawatts, we get what appears to be 2 blocks of noise. Notice these blocks are divided by the beginning of the year 2017. Then in the oil flow vs. power produced plots, we see that we get what look like 2 separate outcomes. Curiosity based on the date vs. power plots makes me wonder if this could possibly have something to do with the change in power produced beginning in 2017. 
-
-To see if the data from 2017 is causing troubles, let's remove it entirely and find what happens then. 
-
-```{r}
-rem_year = filter(training.data, Date < '2017-01-01')
-pairs(rem_year)
-```
-
-Now we're getting somewhere. Notice the 2017 data must is the problem. As we noticed in our original residuals, the data is split, and now we can see how and where. However, we cannot and will not ignore this data from 2017. Instead, we will find a way to work with it. 
+To see if the data from 2017 is causing troubles, let's remove it entirely and find what happens then (Fig. 2). Here we are getting somewhere. Notice the 2017 data must is the problem. As we noticed in our original residuals, the data is split, and now we can see how and where. However, we cannot and will not ignore this data from 2017. Instead, we will find a way to work with it. 
 
 Before we attempt to use a new model, I would first like to see if this linear model could be improved by using quadratic variables. To do this, we will simply add the quadratic values for the power in megawatts to the original dataframes.
 
 ```{r}
-training.data = mutate(training.data, powsq = power_megawatt^2)
-test.data = mutate(test.data, powsq = power_megawatt^2)
-oil.lmq = lm(oil.flow_barrels~power_megawatt+powsq, data = training.data)
+training.data1 = mutate(training.data1, powsq = power_megawatt^2)
+test.data1 = mutate(test.data1, powsq = power_megawatt^2)
+oil.lmq = lm(oil.flow_barrels~power_megawatt+powsq, data = training.data1)
 summary(oil.lmq)
 ```
 
@@ -110,18 +99,18 @@ L=function(y,y.hat){(y-y.hat)^2}
 The `lm` function has a generic funciton `predict` which can be used to predict responses for new data based on a fitted model.
 
 ```{r}
-oilflow.hat = predict(oil.lmq, test.data)
+oilflow.hat = predict(oil.lmq, test.data1)
 ```
 
 Then the test.error for this training data can be estimated from the test data using the following command.
 
 ```{r}
-obs.test.error=mean(L(test.data$oil.flow_barrels,oilflow.hat))
+obs.test.error=mean(L(test.data1$oil.flow_barrels,oilflow.hat))
 obs.test.error
 ```
 
 
-*****
+
 
 
 Clearly the linear model is not working as well as we may have hoped. Let's try making a random forest model using the `caret` package.
@@ -129,14 +118,14 @@ Clearly the linear model is not working as well as we may have hoped. Let's try 
 ```{r warning=FALSE, cache=TRUE}
 set.seed(225566)
 ctrl=trainControl(method="boot632")
-rf.model=train(oil.flow_barrels~power_megawatt, data=training.data, method="rf",
+rf.model=train(oil.flow_barrels~power_megawatt, data=training.data1, method="rf",
                ntree=5000, trControl=ctrl, tuneGrid=data.frame(mtry = 1:8))
 rf.model
-oilflow.fit=predict(rf.model,training.data)
-mean(L(training.data$oil.flow_barrels,oilflow.hat))
+oilflow.fit=predict(rf.model,training.data1)
+mean(L(training.data1$oil.flow_barrels,oilflow.hat))
 
-oilflow.hat=predict(rf.model,test.data)
-mean(L(test.data$oil.flow_barrels,oilflow.hat))
+oilflow.hat=predict(rf.model,test.data1)
+mean(L(test.data1$oil.flow_barrels,oilflow.hat))
 ```
 
 
@@ -166,6 +155,80 @@ West Texas Intermediate (WTI) price has a relationship with oil stored at Cushin
 
 ## My Work:
 
+I have created a table in Excel that I read into R which is presented in Table 2. This table completes the first part of the problem, finding all of the required data and information for each pipeline. I found this information by doing some quick research on the internet. I hope that everything is correct, some information was more difficult to find than others just from the way some companies had their information structured and publicly given out. 
+
+To begin the main portion of the problem, I have already created a dataframe in R containing all of the information given from Genscape for each pipeline in Cushing. The head of this dataframe (labelled in my work as `prob2_data`) is in Table 3.
+
+Our goal here is to use this data to create a model using the pipeline data to predict storage changes at Cushing. The information found in Table 2 could help check our model as well, since we now know the maximum amounts of oil that can be pumped in barrels per day, as well as whether or not that oil is being pumped in or out of Cushing. 
+
+To start this time, let's check out any correlations we can find using the `pairs` function to give us a visual.
+
+```{r}
+pairs(prob2_data)
+```
+
+As mentioned in the prompt for this problem, there is indeed quite a bit of noise here, but it almost seems as if we can see some correlations happening. Specifically we see some interesting correlations between the barrels of oil in Cushing vs. the date, and some interesting correlations between the WTI closing prices vs. the date and the barrels at Cushing. We can play with this more later, but let's first try out some models.
+
+Before we begin, let's divide up our data into test and training sets for this problem.
+
+```{r}
+set.seed(225566)
+training.data2 = sample_frac(prob2_data, size = 2/3)
+test.data2 = anti_join(prob2_data, training.data2, by = 'Date')
+```
+
+
+As before in the first problem, it is good practice to start simple, so let's try a linear regression model and see how things work out.
+
+```{r}
+cushingoil = lm(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + Pony.Express.Pipeline..Barrels.per.day.                 + Dakota.Access.Pipeline..Barrels.Per.Day. + White.Cliffs.Pipeline..Barrels.Per.Day.
+                + TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day., data = training.data2)
+summary(cushingoil)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+------
+
+# Appendix
+
+```{r echo=FALSE, results='asis'}
+kable(head(prob1_data), caption = 'Problem 1 Data Glimpse')%>%
+      kable_styling(latex_options = 'hold_position')
+```
+
+
+```{r}
+pairs(training.data1, main = 'Figure 1')
+```
+
+
+```{r}
+rem_year = filter(training.data1, Date < '2017-01-01')
+pairs(rem_year, main = 'Figure 2')
+```
+
+
+```{r warning=FALSE, echo=FALSE, results = 'asis'}
+kable(cushing_data, caption = 'Cushing, OK Pipeline Data')%>%
+      kable_styling(latex_options = c("scale_down",'hold_position'))
+```
+
+```{r echo=FALSE, results = 'asis'}
+kable(head(prob2_data), caption = 'Problem 2 Data Glimpse')%>%
+      kable_styling(latex_options = c("scale_down",'hold_position'))
+```
 
 
 

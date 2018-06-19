@@ -5,4 +5,6 @@ dplyr
 lattice
 ggplot2
 caret
+xtable
+kableExtra
 bindrcpp
