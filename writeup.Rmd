@@ -7,9 +7,11 @@ output: pdf_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(cache=TRUE)
 require(xlsx)
 require(knitr)
 require(dplyr)
+require(caret)
 
 prob1_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=1,header=TRUE,startRow=1)
@@ -116,6 +118,25 @@ Then the test.error for this training data can be estimated from the test data u
 ```{r}
 obs.test.error=mean(L(test.data$oil.flow_barrels,oilflow.hat))
 obs.test.error
+```
+
+
+*****
+
+
+Clearly the linear model is not working as well as we may have hoped. Let's try making a random forest model using the `caret` package.
+
+```{r warning=FALSE, cache=TRUE}
+set.seed(225566)
+ctrl=trainControl(method="boot632")
+rf.model=train(oil.flow_barrels~power_megawatt, data=training.data, method="rf",
+               ntree=5000, trControl=ctrl, tuneGrid=data.frame(mtry = 1:8))
+rf.model
+oilflow.fit=predict(rf.model,training.data)
+mean(L(training.data$oil.flow_barrels,oilflow.hat))
+
+oilflow.hat=predict(rf.model,test.data)
+mean(L(test.data$oil.flow_barrels,oilflow.hat))
 ```
 
 

@@ -1,0 +1,8 @@
+base
+xlsx
+knitr
+dplyr
+lattice
+ggplot2
+caret
+bindrcpp
