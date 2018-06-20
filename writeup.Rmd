@@ -16,6 +16,7 @@ require(xtable)
 require(kableExtra)
 require(lubridate)
 require(ggplot2)
+require(MASS)
 
 prob1_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=1,header=TRUE,startRow=1)
@@ -256,6 +257,81 @@ cushingoil = lm(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + P
                 + TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day., data = training.data2)
 summary(cushingoil)
 ```
+
+
+
+
+
+Let's also look at some other models:
+
+
+```{r eval=FALSE}
+### Partial Least Squares (pls::plsr) [p.80//99]: number of components selected by CV
+require(pls)
+pls.model=plsr(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
+               Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
+               White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
+               data=training.data2,validation="CV",scale=TRUE)
+summary(pls.model)
+
+cush.fit=predict(pls.model,newdata=training.data2)
+mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
+
+cush.hat=predict(pls.model,6,newdata=test.data2)
+mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
+```
+
+```{r}
+### Regression Tree (rpart::rpart) [p.307//326]
+require(rpart)
+rpart.model=rpart(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
+                  Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
+                  White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
+                  data=training.data2)
+summary(rpart.model)
+
+cush.fit=predict(rpart.model)
+mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
+
+cush.hat=predict(rpart.model,newdata=test.data2)
+mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
+```
+
+```{r eval = FALSE}
+### Neural Network (nnet::nnet) [p.392//411]: 1 hidden layer, 2 units
+require(nnet)
+set.seed(32347)
+nnet.model=nnet(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
+                Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
+                White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
+                data=training.data2,size=2,linout=TRUE)
+summary(nnet.model)
+
+cush.fit=predict(nnet.model)
+mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
+
+cush.hat=predict(nnet.model,newdata=test.data2)
+mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
+```
+
+```{r cache=TRUE}
+## use caret package to choose mtry
+set.seed(213874)
+ctrl=trainControl(method="boot632")
+rf.model=train(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
+               Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
+               White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
+               data=training.data2, method="rf",ntree=5000, trControl=ctrl, tuneGrid=data.frame(mtry = 1:8))
+rf.model
+cush.fit=predict(rf.model,training.data2)
+mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
+
+cush.hat=predict(rf.model,test.data2)
+mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
+```
+
+Will look at these models in more depth tomorrow.
+
 
 
 
