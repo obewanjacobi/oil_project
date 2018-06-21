@@ -16,7 +16,10 @@ require(xtable)
 require(kableExtra)
 require(lubridate)
 require(ggplot2)
-require(MASS)
+require(rpart)
+require(nnet)
+require(caretEnsemble)
+require(elasticnet)
 
 prob1_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
                         sheetIndex=1,header=TRUE,startRow=1)
@@ -27,6 +30,42 @@ prob2_data = read.xlsx("./Draft_Problem_set.2.xlsx",
                         sheetIndex=2,header=TRUE,startRow=1)
 cushing_data = read.xlsx('./cushing.pipedata.xlsx',
                          sheetIndex=1, header=TRUE, startRow = 2, endRow = 7)
+
+multiplot <- function(..., plotlist=NULL, file, cols=1, layout=NULL) {
+  library(grid)
+  
+  # Make a list from the ... arguments and plotlist
+  plots <- c(list(...), plotlist)
+  
+  numPlots = length(plots)
+  
+  # If layout is NULL, then use 'cols' to determine layout
+  if (is.null(layout)) {
+    # Make the panel
+    # ncol: Number of columns of plots
+    # nrow: Number of rows needed, calculated from # of cols
+    layout <- matrix(seq(1, cols * ceiling(numPlots/cols)),
+                     ncol = cols, nrow = ceiling(numPlots/cols))
+  }
+  
+  if (numPlots==1) {
+    print(plots[[1]])
+    
+  } else {
+    # Set up the page
+    grid.newpage()
+    pushViewport(viewport(layout = grid.layout(nrow(layout), ncol(layout))))
+    
+    # Make each plot, in the correct location
+    for (i in 1:numPlots) {
+      # Get the i,j matrix positions of the regions that contain this subplot
+      matchidx <- as.data.frame(which(layout == i, arr.ind = TRUE))
+      
+      print(plots[[i]], vp = viewport(layout.pos.row = matchidx$row,
+                                      layout.pos.col = matchidx$col))
+    }
+  }
+}
 ```
 
 # Problem 1
@@ -41,13 +80,7 @@ Find the average monthly value for your prediction and the ‘Oil Flow’ column
 
 ## My Work:
 
-To start, I have already read the required data into R, and named the data for this problem `prob1_data`. Table 1 shows a slight glimpse at what this data looks like.
-
-
-
-So what we have here is the date that the data corresponds to, the number of barrels that flowed through that pump on a given day, and the pump station power in Megawatts. 
-
-Before we begin our model making process, it may be helpful to split the data into test and training datasets. We can do this with the following simple bit of code:
+To start, I have already read the required data into R, and named the data for this problem `prob1_data`. Table 1 shows a slight glimpse at what this data looks like. What we have here is the date that the data corresponds to, the number of barrels that flowed through that pump on a given day, and the pump station power in Megawatts. Before we begin our model making process, it may be helpful to split the data into test and training datasets. We can do this with the following simple bit of code:
 
 ```{r}
 set.seed(225566)
@@ -57,7 +90,7 @@ test.data1 = anti_join(prob1_data, training.data1, by = 'Date')
 
 Here we are using the `dplyr` package to easily organize the test and training datasets. First we set the seed so that we get the same training data every time we run this code. The training data here is $\frac{2}{3}$ of the original data, while the test data is the leftover $\frac{1}{3}$. We don't use a validation set here because our goal is to simply assess how well the model and estimation method work. 
 
-Now we can begin the creation of our model. Let's start with the easiest option and make a linear model.
+Now we can begin the creation of our model. Let's start with the easiest option and try a linear model.
 
 ```{r}
 oil.lm = lm(oil.flow_barrels~power_megawatt, data = training.data1)
@@ -70,11 +103,11 @@ Presented here is our summary of the linear model. Just by looking at this, we f
 plot(oil.lm, which = 1:2)
 ```
 
-Here we can see that our residuals clearly show a different story. From our first residual plot, we can see that it almost seems as though our data is split into 2 parts. And from the Q-Q plot we see that we definitely have some outliers and maybe some noise. So maybe a simple linear model is not our best option.
+Here we can see that our residuals clearly show something is amiss. From our first residual plot, we can see that it almost seems as though our data is split into 2 parts. And from the Q-Q plot we see that we definitely have some outliers and maybe some noise. So maybe a simple linear model is not our best option.
 
 To further our exploration here, let's look at some correlations in the data using the `pairs` function in R (Fig. 1). This plot shows some interesting facts about this data. First off, as probably expected, Date vs. the oil flow in barrels makes for a lot of noise. Then in the Date vs. the power produced in megawatts, we get what appears to be 2 blocks of noise. Notice these blocks are divided by the beginning of the year 2017. Then in the oil flow vs. power produced plots, we see that we get what look like 2 separate outcomes. Curiosity based on the date vs. power plots makes me wonder if this could possibly have something to do with the change in power produced beginning in 2017. 
 
-To see if the data from 2017 is causing troubles, let's remove it entirely and find what happens then (Fig. 2). Here we are getting somewhere. Notice the 2017 data must is the problem. As we noticed in our original residuals, the data is split, and now we can see how and where. However, we cannot and will not ignore this data from 2017. Instead, we will find a way to work with it. 
+To see if the data from 2017 is causing troubles, let's remove it entirely and find what happens then (Fig. 2). Here we are getting somewhere. Notice the 2017 data must be the problem. As we noticed in our original residuals, the data is split, and now we can see how and where. However, we cannot and will not ignore this data from 2017. Instead, we will find a way to work with it. 
 
 Before we attempt to use a new model, I would first like to see if this linear model could be improved by using quadratic variables. To do this, we will simply add the quadratic values for the power in megawatts to the original dataframes.
 
@@ -91,7 +124,7 @@ Here we see yet again that our P-values for the model look exceptionally nice an
 plot(oil.lmq, which = 1:2)
 ```
 
-These residuals show a better outcome than our first model, but the Q-Q plot is still showing quite a few outliers. This leads me to question the quality of this model. There is one more thing we can do to help the situation. We can make an indicator variable for any data entered in the year 2017. This indicator variable in our linear model can help distinguish the massive difference in the data depending on the year. To do this, we will go back to the handy `dplyr` package.
+These residuals show a better outcome than our first model, but the Q-Q plot is still showing quite a few outliers, and we can see that our model still seems to be split in two. There is one more thing we can do to help the situation. We can make an indicator variable for any data entered in the year 2017. This indicator variable in our linear model can help distinguish the massive difference in the data depending on the year. To do this, we will go back to the handy `dplyr` package, then make a for loop to put in our indicators for the year 2017.
 
 ```{r}
 n = length(prob1_data$Date)
@@ -103,7 +136,7 @@ for(i in 1:n){
 }
 ```
 
-Now we'll recreate our training and test datasets with these indices.
+Now we'll recreate our training and test datasets with these indices. We also add back in the quadratic variables, as it was clear that they will be necessary for the model.
 
 ```{r}
 set.seed(225566)
@@ -114,7 +147,7 @@ test.data1 = mutate(test.data1, powsq = power_megawatt^2)
 prob1_data.mod = mutate(prob1_data, powsq = power_megawatt^2)
 ```
 
-And now we can make our new model! Since the model with quadratic variables looked better than the one without, let's expand on that one. 
+And now we can make our new model! As mentioned above, since the model with quadratic variables clearly worked better than the one without, we will expand on that one. 
 
 ```{r}
 oilyear.lm = lm(oil.flow_barrels~power_megawatt+powsq+ind, data = training.data1)
@@ -127,7 +160,7 @@ Things are looking good so far. We have low P-values all around, although the P-
 plot(oilyear.lm, which = 1:2)
 ```
 
-This is interesting, it seems as though we almost are still in need of additional variables. We could keep adding variables to the mix, but that may begin to make things messy. Just to check, let's try adding in the cubed power variables. To make things simple again, we will just go on and rename the model back to `oil.lm`.
+Now we are getting somewhere. The model finally is in one piece. The only downside to these residuals I would say is that we still have a slight curve in the first plot. To remedy this, let's add in one more variable, that being the power cubed. While we don't want to add too many variables in to keep the model as simple as possible, I do believe this will make it more accurate and worth the slight complexity. To save confusion on names, we will just go on and rename the model back to `oil.lm`.
 
 ```{r}
 training.data1 = mutate(training.data1, powcu = power_megawatt^3)
@@ -143,7 +176,7 @@ The P-values are even smaller on this model. Maybe we are on our way to making t
 plot(oil.lm, which = 1:2)
 ```
 
-These residuals do look much better. The downside is that now our model is getting more and more complex, though the goal is always to try to keep it relatively simple. For the sake of accuracy though, we will continue the use of this model, and test it to see if it works well. 
+These residuals do look better. It seems that the slight complexity was worth it. 
 
 As a final test for this model, we will now find the training and test error for the squared-error loss function $L(y, \hat{y}) = (y-\hat{y})^2$. This is standard practice, as we want to minimize this error. We will create an easy to use function in R to find this error.
 
@@ -157,14 +190,14 @@ The `lm` function has a generic function `predict` which can be used to predict 
 oilflow.hat = predict(oil.lm, test.data1)
 ```
 
-Then the test.error for this training data can be estimated from the test data using the following command.
+Then the test error for this training data can be estimated from the test data using the following command.
 
 ```{r}
 obs.test.error=mean(L(test.data1$oil.flow_barrels,oilflow.hat))
 obs.test.error
 ```
 
-Even though it may look large, this error of $50041530$ is good compared to the standard deviation of the oil flow. So I think we can conclude that this model works relatively well. So now we move on to the final part of this problem. We must find the average monthly value for our prediction and compare it to the actual oil flow in the data given. To do this first, we must find the monthly averages of the actual data. Luckily for us, R has tools to get this done.
+Even though it may look large, this error of $50041530$ is a decent error compared to the standard deviation of the oil flow. Thus we can conclude that this model works well. So now we move on to the final part of this problem. We must find the average monthly value for our prediction and compare it to the actual oil flow in the data given. To do this first, we must find the monthly averages of the actual data. Luckily for us, R has tools to get this done.
 
 ```{r}
 oil_ave = prob1_data %>% group_by(month=floor_date(Date, "month")) %>%
@@ -187,7 +220,7 @@ Now we have our predicted monthly averages for the oil flow in barrels per day. 
 plot_data = left_join(oil_ave,oil.pred_ave, by = 'month')
 ```
 
-Now we just need to make a nice plot that consumers might like to see to show the accuracy of the model. 
+Finally we can make our plot. I will be using the package `ggplot2` to make this plot, as it has tools necessary to making the visual helpful and easy to understand. 
 
 ```{r warning=FALSE, echo=FALSE}
 qplot(plot_data$oil.flow_barrels, plot_data$oil.predict, geom = c("point", "smooth"),
@@ -195,9 +228,9 @@ qplot(plot_data$oil.flow_barrels, plot_data$oil.predict, geom = c("point", "smoo
       ylab = 'Predicted Flow in Barrels per Day')
 ```
 
-As you can see, this line looks very promising! While our predictions don't always line up perfectly, using the blue Loess curve, we can see that we average very close to the actual oil flow on a given day using this model. This plot would also be easy to understand for consumers who don't really care about the observed error and things like that. 
+As you can see, this line looks very promising! While our predictions don't always line up perfectly, using the blue Loess curve, we can see that we average very close to the actual oil flow on a given day using this model. This plot is nice in its accuracy, but would also be easy to understand for consumers. 
 
-So in conclusion for this problem, we managed to come up with a model that does well enough. And using the plot shown above, we can actually show others who may not know as much about the background material that this model does indeed work in most cases. My only problem with this model is that when we get into extremes, for example very high and very low values, it becomes less accurate. This was also pointed out in the Q-Q plot for the model. However, this is fairly normal for models such as this. 
+So in conclusion for this problem, we managed to come up with a model that predicts the actual outcomes well. And using the plot shown above, we can actually show others who may not know as much about the background material that this model does indeed work in most cases. My only problem with this model is that when we get into extremes, for example very high and very low values, it becomes less accurate. This was also pointed out in the Q-Q plot for the model. However, this is fairly normal for models such as this. 
 
 
 
@@ -225,103 +258,112 @@ West Texas Intermediate (WTI) price has a relationship with oil stored at Cushin
 
 
 
-## My Work:
+## My Model
 
 I have created a table in Excel that I read into R which is presented in Table 3. This table completes the first part of the problem, finding all of the required data and information for each pipeline. I found this information by doing some quick research on the internet. I hope that everything is correct, some information was more difficult to find than others just from the way some companies had their information structured and publicly given out. 
 
-To begin the main portion of the problem, I have already created a dataframe in R containing all of the information given from Genscape for each pipeline in Cushing. The head of this dataframe (labelled in my work as `prob2_data`) is in Table 4.
+To begin the main portion of the problem, I have already created a dataframe in R containing all of the information given from Genscape for each pipeline in Cushing. The head of this dataframe (labelled in my work as `prob2_data` or `D`) is in Table 4.
 
 Our goal here is to use this data to create a model using the pipeline data to predict storage changes at Cushing. The information found in Table 3 could help check our model as well, since we now know the maximum amounts of oil that can be pumped in barrels per day, as well as whether or not that oil is being pumped in or out of Cushing. 
 
-To start this time, let's check out any correlations we can find using the `pairs` function to give us a visual.
+To start this time, let's check out any correlations we can find using the `pairs` function to give us a visual (Fig. 3). As mentioned in the prompt for this problem, there is indeed quite a bit of noise here, but it almost seems as if we can see some correlations happening. Specifically we see some interesting correlations between the barrels of oil in Cushing vs. the date, and some interesting correlations between the WTI closing prices vs. the date and the barrels at Cushing. We can play with this more later, but let's first try out some models.
+
+Before we begin, let's divide up our data into test and training sets for this problem. For our test and training sets, we will remove the first day as we have NA values for all of the pipelines. We will also create a dataframe `D` to basically rename `prob2_data` in order to save time typing.
 
 ```{r}
-pairs(prob2_data)
-```
-
-As mentioned in the prompt for this problem, there is indeed quite a bit of noise here, but it almost seems as if we can see some correlations happening. Specifically we see some interesting correlations between the barrels of oil in Cushing vs. the date, and some interesting correlations between the WTI closing prices vs. the date and the barrels at Cushing. We can play with this more later, but let's first try out some models.
-
-Before we begin, let's divide up our data into test and training sets for this problem.
-
-```{r}
+n = length(prob2_data$Date)
+temp = prob2_data[2:n,]
 set.seed(225566)
-training.data2 = sample_frac(prob2_data, size = 2/3)
-test.data2 = anti_join(prob2_data, training.data2, by = 'Date')
+training.data2 = sample_frac(temp, size = 2/3)
+test.data2 = anti_join(temp, training.data2, by = 'Date')
+D = prob2_data
 ```
-
 
 As before in the first problem, it is good practice to start simple, so let's try a linear regression model and see how things work out.
 
 ```{r}
-cushingoil = lm(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + Pony.Express.Pipeline..Barrels.per.day.                 + Dakota.Access.Pipeline..Barrels.Per.Day. + White.Cliffs.Pipeline..Barrels.Per.Day.
-                + TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day., data = training.data2)
+cushingoil = lm(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. 
+                + Pony.Express.Pipeline..Barrels.per.day.                 
+                + Dakota.Access.Pipeline..Barrels.Per.Day. 
+                + White.Cliffs.Pipeline..Barrels.Per.Day.
+                + TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
+                data = training.data2)
 summary(cushingoil)
 ```
 
+The first strange thing we can note about this model is that our variables don't quite do what we would expect them to. Recall the starting and ending points for each of these pipelines. This information tells us whether or not the pipes are pumping oil in or out of Cushing. But if we notice, this linear model doesn't follow that like we would expect. We would expect that if a pipe pumps oil out of Cushing, then the estimate for the coefficient would be negative, indicating that the oil is leaving. We would expect the opposite for oil being pumped in. But notice, specifically for the White Cliffs pipeline and the TransCanada pipeline, the values are the opposite of what we would expect. 
 
+On top of this fact, we must think about the fact that the Dakota Access pipeline (we will call it DAP from here out) according to our research doesn't even go to the Cushing storage facility. And the P-value for DAP coefficient estimate is relatively high compared to all of the other coefficients. At first glance this would lead us to believe that the DAP is an unecessary variable and we should remove it. Before we jump into this decision, I would like to explore this model further. 
 
+First off, for the rest of this problem, we won't use separate training and test datasets. Cutting the data results in losing too much information in the model we create. For example, up until 05/16/2017, the DAP wasn't even pumping oil at all. After some research, we find that this is because it is a relatively new pipeline. In order to take this into account, we will not split the data as we did above. 
 
-
-Let's also look at some other models:
-
-
-```{r eval=FALSE}
-### Partial Least Squares (pls::plsr) [p.80//99]: number of components selected by CV
-require(pls)
-pls.model=plsr(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
-               Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
-               White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
-               data=training.data2,validation="CV",scale=TRUE)
-summary(pls.model)
-
-cush.fit=predict(pls.model,newdata=training.data2)
-mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
-
-cush.hat=predict(pls.model,6,newdata=test.data2)
-mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
-```
+The first thing I would like to do in this model is to test as to whether or not there is any lag in the data. By this I mean I would like to find out if pumping oil from any pipeline that pumps in or out of Cushing has lag compared to when the data says it was pumped to when we see the oil show up in the Cushing sotrage variable. If the lag is small enough, we will simply ignore it and move on. First off, let's make a new dataframe where things are a little easier to observe.
 
 ```{r}
-### Regression Tree (rpart::rpart) [p.307//326]
-require(rpart)
-rpart.model=rpart(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
-                  Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
-                  White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
-                  data=training.data2)
-summary(rpart.model)
-
-cush.fit=predict(rpart.model)
-mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
-
-cush.hat=predict(rpart.model,newdata=test.data2)
-mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
+D2=D[-1,]
+n=nrow(D)
+D2[,2]=D[-1,2]-D[-n,2]
 ```
 
-```{r eval = FALSE}
-### Neural Network (nnet::nnet) [p.392//411]: 1 hidden layer, 2 units
-require(nnet)
-set.seed(32347)
-nnet.model=nnet(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
-                Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
-                White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
-                data=training.data2,size=2,linout=TRUE)
-summary(nnet.model)
+What we have done here is make a new dataframe `D2` that no longer shows the total amount of oil on any given day, but instead shows the change in oil stored for each day. A glimpse of this dataframe is shown in Table 5 in the Appendix. This will help make visualizing this data a little simpler. 
 
-cush.fit=predict(nnet.model)
-mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
+To find if there is a significant lag, we will find a crucial point in the oil stored, and see if the oil being pumped in and out of Cushing reflects the change. To do this, let's first find a crucial point in the data. Let's plot the change in oil each day vs. the date (see Figure 4). The crucial point we will be looking at is between the two red lines on the plot. Clearly something happened here to make the amount of oil in Cushing go down. So using this, and just by looking at the data, we can see if there is indeed a significant lag. Note, the red lines mark the days $367$ and $391$ respectively. So if we just look at the data entries for these days, we can see that indeed oil was being pumped out, but not much was being pumped in. In fact, the exact days that we see these changes happen in the figure lines up perfectly with the days in the data. All you need to do to see this is scroll down to the $367$th entry in the excel file supplied to us to confirm this. Thus we can conclude that if there is any lag, it is not significant enough to consider in our model.
 
-cush.hat=predict(nnet.model,newdata=test.data2)
-mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
+Now, the problem reads: "create a model using the pipeline data provided to predict storage changes at Cushing". We will do this by actually making a model that predicts the changes in barrels of oil stored at Cushing, not just the amount being stored as we did in our first model we tried. To do this, we will go back to our `D2` dataframe. 
+
+Before we actually create the model though, we must first find out if the DAP is significant to the change in oil at Cushing. To do this, let's look at figure 5. At first glance this plot may seem daunting, but I promise it will make since. The black line here represents the amount of oil stored on each day in Cushing. The red line represents the oil being added in by White Cliffs, the green line is the oil added by Pony Express, and finally the blue line represents DAP. The way we managed to get all of these lines onto one plot was to normalize each of the variables, ie, subtract the mean, then divide the difference by the standard deviation of each. When we see the colored lines rise, that represents times that these pipelines were pumping oil into the Cushing storage facility. As we have noted, DAP doesn't start until 2017, where we see the blue lines beginning to be active. Take note that at this point, oil is still being taken out of Cushing at a fairly consistent rate. Also notice that a little before the 800th day in our data, Cushing is at an all time low in the amount of oil being stored. And even though there are no drastic changes in the oil going in or oil coming out, the amount of oil in Cushing begins to rise once the DAP began pumping. Thus I believe that we can assume that somehow, the DAP is affecting the amount of oil being stored in Cushing, seemingly by adding oil to the storage.
+
+Thus we cannot rule the DAP out of our model, meaning that we must include everything we have. However, this does make it difficult to find a single model that works the best that is also all encompassing. To wrap things up, I will present 3 models, each with their own benefits and weaknesses. The first of which will be centered around the data before DAP was added into the mix.
+
+```{r}
+bDAP=lm(D2[1:865,2]~D2[1:865,3]+D2[1:865,4]+D2[1:865,6]+D2[1:865,7])
+summary(bDAP)
 ```
 
-```{r cache=TRUE}
-## use caret package to choose mtry
+As we can see here, this model is in line much more with what we expected out of a model for this situation. All of our P-values are low, and the estimates for the coefficients are positive and negative where we expect them to be. The residuals are plotted as well in the appendix in Figure 6. While these residuals are not extremely impressive, the are not bad either. They at least show that the coefficients cannot be rejected and that we are close to normality in the Q-Q plot. Next up we will look at a model for after DAP came into the situation. 
+
+```{r}
+aDAP=lm(D2[866:n,2]~D2[866:n,3]+D2[866:n,4]+D2[866:n,5]+D2[866:n,6]+D2[866:n,7])
+summary(aDAP)
+```
+
+Here things become a little less accurate. This could be for multiple reasons, but my educated guess is that is has something to do with the small amount of data we have after the DAP is created. On top of this, we still technically don't know the capacity in which the DAP affects the oil storage at Cushing, we only know that it has some effect. We can notice in the summary that P-values aren't what we would expect. For example, number $6$ in the variables is the White Cliffs pipeline. Before this, we have never questioned the impact of this pipeline on our model, but now we are getting a very high P-value, one that most (if not all) people would say means that we should remove the variable entirely. Considering all of these factors, I would not use this model. In case the reader would like to see them, the residuals are plotted in Figure 7. 
+
+The final model we will discuss is the all encompassing model. This model will use all of the data at our disposal. 
+
+```{r}
+cushing = lm(D2$Cushing.Storage..Barrels.~D2$Seaway.Pipeline..Barrels.per.day.
+          +D2$Pony.Express.Pipeline..Barrels.per.day.
+          +D2$Dakota.Access.Pipeline..Barrels.Per.Day.
+          +D2$White.Cliffs.Pipeline..Barrels.Per.Day.
+          +D2$TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.)
+summary(cushing)
+```
+
+This model looks much better in terms of the P-values. The DAP is still high compared to others, however it is low enough that I don't think it should be rejected. What is odd that the DAP got a negative coefficient, although it is very small. The main strength of this model is that it is all inclusive, and still relatively accurate even so. In Figure 8 you can see the residuals. Notice that excluding some outliers in the Q-Q plot, this is the most accurate model we've had thus far. The weakness of this model though is that I feel that if new data were to be added, it would not hold up. Simply put it's because more data is coming in every day that actually accounts for the DAP better than the first $865$ entries of the data we were given does. So even though this may be accurate in the short term, it would definitely need to be updated over time. Even so, I would argue that this is the best model yet. 
+
+
+
+
+
+
+
+
+## Bonus Model
+
+I didn't want to leave the reader thinking that all I was good for was a linear regression model, so I wanted to include this as well. Below is the method using the `caret` package to make a random forest model. This model uses all of the pipeline data and uses machine learning techniques to decide what would make an accurate model. 
+
+```{r cache=TRUE, warning=FALSE}
+## random forest using caret
 set.seed(213874)
 ctrl=trainControl(method="boot632")
 rf.model=train(Cushing.Storage..Barrels.~ Seaway.Pipeline..Barrels.per.day. + 
-               Pony.Express.Pipeline..Barrels.per.day. + Dakota.Access.Pipeline..Barrels.Per.Day. +
-               White.Cliffs.Pipeline..Barrels.Per.Day.+ TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
-               data=training.data2, method="rf",ntree=5000, trControl=ctrl, tuneGrid=data.frame(mtry = 1:8))
+               Pony.Express.Pipeline..Barrels.per.day. 
+               + Dakota.Access.Pipeline..Barrels.Per.Day. 
+               + White.Cliffs.Pipeline..Barrels.Per.Day.
+               + TransCanada.Gulf.Coast.Pipeline..Barrels.Per.day.,
+               data=training.data2, method="rf",ntree=5000, trControl=ctrl, 
+               tuneGrid=data.frame(mtry = 1:8))
 rf.model
 cush.fit=predict(rf.model,training.data2)
 mean(L(training.data2$Cushing.Storage..Barrels.,cush.fit))
@@ -330,10 +372,29 @@ cush.hat=predict(rf.model,test.data2)
 mean(L(test.data2$Cushing.Storage..Barrels.,cush.hat))
 ```
 
-Will look at these models in more depth tomorrow.
+Before finishing this project, I tried quite a few different types of models for this problem. This one gave me the lowest training and test errors ($7.745711 \times 10^{13}$ and $7.22922 \times 10^{13}$ respectively), which is why I have chosen to include it. Both are actually quite small compared to the standard deviation. The downside of this model though is that it's not exactly easy to use, and consumers may not like the fact that it isn't easy to understand. But if we could make a way to hide the unnecessary details, say in perhaps a shiny app or something of the sort, this model could be used to it's fullest capacity without bogging down consumers in its complexity. It is also unfortunate that I couldn't find the test error for my final linear model I created to compare it to this one. If the data was expanded and more was added though, this could be done easily.
 
 
 
+
+
+
+
+
+
+
+## Price Correlation Discussion
+
+Here we will discuss the last part of this problem; the correlation we found between the price of oil, the barrels being stored at Cushing, and the date. To do this, we will look at the below plot.
+
+```{r echo = FALSE}
+p = ggplot(D, aes(x=Cushing.Storage..Barrels., y=WTI.Spot.Price....Barrel., color=Date))
+p = p + labs(x = 'Barrels Stored at Cushing', y = 'Price per Barrel', title = 'Price vs. Barrels Stored')
+p = p + geom_point() 
+p
+```
+
+Here we can see the correlation very easily. First note that the darker colored points are the earlier dates, and the colors get lighter as time goes on. And, as we would expect, the more barrels stored at Cushing, the less the price of oil, and vice versa. This is simple supply and demand logic. What's interesting is how seemingly in the more recent dates, the price is even lower per barrel related to how many barrels are stored at Cushing. This could be for many reasons, maybe the addition of the DAP, but without more information, it is hard to say. Nonetheless, it is very interesting to note.
 
 
 
@@ -350,18 +411,32 @@ Will look at these models in more depth tomorrow.
 
 # Appendix
 
+
+
+
+## Problem 1
+
+```{r echo = FALSE}
+prob1_data = read.xlsx("./Draft_Problem_set.2.xlsx", 
+                        sheetIndex=1,header=TRUE,startRow=1)
+prob1_data = prob1_data[,1:3]
+colnames(prob1_data) = c('Date','oil.flow_barrels','power_megawatt')
+set.seed(225566)
+training.data1 = sample_frac(prob1_data, size = 2/3)
+test.data1 = anti_join(prob1_data, training.data1, by = 'Date')
+```
+
+
+```{r echo = FALSE}
+pairs(training.data1, main = 'Figure 1')
+```
+
 ```{r echo=FALSE, results='asis'}
 kable(head(prob1_data), caption = 'Problem 1 Data Glimpse')%>%
       kable_styling(latex_options = 'hold_position')
 ```
 
-
-```{r}
-pairs(training.data1, main = 'Figure 1')
-```
-
-
-```{r}
+```{r echo = FALSE}
 rem_year = filter(training.data1, Date < '2017-01-01')
 pairs(rem_year, main = 'Figure 2')
 ```
@@ -373,15 +448,63 @@ kable(head(oil_ave), caption = 'Average Oil Flow per Month') %>%
 
 
 
+## Problem 2
+
+
+
 ```{r warning=FALSE, echo=FALSE, results = 'asis'}
 kable(cushing_data, caption = 'Cushing, OK Pipeline Data')%>%
       kable_styling(latex_options = c("scale_down",'hold_position'))
+```
+
+```{r echo = FALSE}
+pairs(prob2_data, main = 'Figure 3')
 ```
 
 ```{r echo=FALSE, results = 'asis'}
 kable(head(prob2_data), caption = 'Problem 2 Data Glimpse')%>%
       kable_styling(latex_options = c("scale_down",'hold_position'))
 ```
+
+```{r echo=FALSE, results = 'asis'}
+kable(head(D2), caption = 'Modified Data with Differences')%>%
+      kable_styling(latex_options = c("scale_down",'hold_position'))
+```
+
+```{r echo=FALSE}
+plot(D2[,2], main = 'Figure 4: Change in Oil Stored Each Day', xlab = 'Numbered Day after 1/2/2015', ylab = 'Change in Barrels of Oil Stored')
+abline(v=c(367,391),col="red")
+```
+
+```{r echo=FALSE}
+D=D[-1,]
+plot((D[,2]-mean(D[,2]))/sd(D[,2]),type="l", yaxt='n', main = 'Figure 5: Change in Oil Amount at Cushing',
+     xlab = 'Numbered Day after 1/2/2015', ylab = 'Oil')
+points((D[,4]-mean(D[,4]))/sd(D[,4]),type="l",col="green")
+points((D[,6]-mean(D[,6]))/sd(D[,6]),type="l",col="red")
+points((D[,5]-mean(D[,5]))/sd(D[,5]),type="l",col="blue")
+```
+
+```{r echo=FALSE, fig.height=3}
+plot(bDAP, which = 1:2, main = 'Figure 6')
+```
+
+```{r echo=FALSE, fig.height=3}
+plot(aDAP, which = 1:2, main = 'Figure 7')
+```
+
+```{r echo=FALSE, fig.height=3}
+plot(cushing, which = 1:2, main = 'Figure 8')
+```
+
+
+
+
+
+
+
+
+
 
 
 

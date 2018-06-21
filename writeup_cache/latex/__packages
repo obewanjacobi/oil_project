@@ -11,3 +11,7 @@ bindrcpp
 MASS
 lubridate
 rpart
+nnet
+caretEnsemble
+lars
+elasticnet
